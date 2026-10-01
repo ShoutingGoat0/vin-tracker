@@ -44,6 +44,13 @@
     return withTimeout(fetch(url, { method: 'GET', redirect: 'follow', credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store', signal: ctl.signal }), FETCH_TIMEOUT, ctl)
       .then(function (r) { return r.json(); });
   }
+  function csvGet() {
+    var ctl = new AbortController();
+    var u = state.cfg.csv + (state.cfg.csv.indexOf('?') < 0 ? '?' : '&') + '_=' + Date.now();
+    return withTimeout(fetch(u, { method: 'GET', redirect: 'follow', credentials: 'omit', referrerPolicy: 'no-referrer', cache: 'no-store', signal: ctl.signal }), FETCH_TIMEOUT, ctl)
+      .then(function (r) { if (!r.ok) throw new Error('csv'); return r.text(); })
+      .then(function (t) { var v = L.parseSheetCsv(t); if (!v.length) throw new Error('csv-empty'); return v; });
+  }
   function apiPost(item) {
     var ctl = new AbortController();
     // text/plain avoids a CORS preflight (Apps Script can't answer OPTIONS)
@@ -56,13 +63,19 @@
     if (!state.cfg || state.fetching) return Promise.resolve();
     if (!force && Date.now() - state.list.at < REFRESH_MS - 2000) return Promise.resolve();
     state.fetching = true;
+    var scriptErr = '';
+    // Prefer the Apps Script list (live). Fall back to the published CSV (read-only, can lag a few minutes).
     return apiGet().then(function (res) {
-      if (res && res.ok && Array.isArray(res.vins)) {
-        state.list = { at: Date.now(), vins: res.vins }; save(K.list, state.list);
-      } else {
-        toast((res && res.error) || 'Could not load list', 'err', 5000);
-      }
-    }).catch(function () { /* offline: keep cached list */ }).then(function () { state.fetching = false; render(); });
+      if (res && res.ok && Array.isArray(res.vins)) { state.list = { at: Date.now(), vins: res.vins, src: 'script' }; save(K.list, state.list); return true; }
+      scriptErr = (res && res.error) || 'Could not load list';
+      return false;
+    }).catch(function () { scriptErr = 'unreachable'; return false; }).then(function (okScript) {
+      if (okScript) return;
+      if (!state.cfg.csv) { if (scriptErr && scriptErr !== 'unreachable') toast(scriptErr, 'err', 5000); return; }
+      return csvGet().then(function (v) {
+        state.list = { at: Date.now(), vins: v, src: 'csv' }; save(K.list, state.list);
+      }).catch(function () { if (scriptErr && scriptErr !== 'unreachable') toast(scriptErr, 'err', 5000); });
+    }).then(function () { state.fetching = false; render(); });
   }
 
   /* ---------- queue ---------- */
@@ -109,7 +122,8 @@
     var digits = L.cleanDigits($('digits').value);
     if (digits.length < 4) return;
     var m = L.matchVins(state.list.vins, digits);
-    if (state.list.vins.length && m.length !== 1) { toast(m.length ? m.length + ' cars match — add more digits' : 'No VIN ends with ' + digits, 'err', 4000); return; }
+    var lenient = state.list.src === 'csv' && m.length === 0; // backup list may lag: let the server decide
+    if (state.list.vins.length && m.length !== 1 && !lenient) { toast(m.length ? m.length + ' cars match — add more digits' : 'No VIN ends with ' + digits, 'err', 4000); return; }
     var item = { clientId: L.uuid(), name: state.name, digits: digits, action: action, ts: Date.now(), vin: m[0] && m[0].vin };
     state.queue.push(item); persistQueue();
     state.recent.unshift({ clientId: item.clientId, digits: digits, vin: item.vin, action: action, ts: item.ts, st: 'pending' });
@@ -131,9 +145,9 @@
     if (!state.cfg) hint.textContent = 'Setup needed — open the share link or tap ⚙.';
     else if (d.length < 4) hint.textContent = 'Type at least 4 characters.';
     else if (!haveList) hint.textContent = 'List not loaded yet — you can still send; the server will check.';
-    else if (!state.matches.length) hint.textContent = 'No VIN ends with ' + d + '.';
+    else if (!state.matches.length) hint.textContent = 'No VIN ends with ' + d + (state.list.src === 'csv' ? ' in the backup list — you can still send; the server will check.' : '.');
     else if (state.matches.length > 1) hint.textContent = state.matches.length + ' cars match — add more digits.';
-    else hint.textContent = '';
+    else hint.textContent = state.list.src === 'csv' ? 'Backup list (published sheet) — status may be a few minutes behind.' : '';
     state.matches.slice(0, 6).forEach(function (e) {
       var cd = L.countdown(e.reservation);
       var v = esc(e.vin), n = d.length;
@@ -143,11 +157,11 @@
         '<div class="status">Status: <b>' + esc(e.status || 'not updated') + '</b></div></div>';
     });
     box.innerHTML = html;
-    var canSend = d.length >= 4 && !!state.cfg && (haveList ? state.matches.length === 1 : true);
+    var canSend = d.length >= 4 && !!state.cfg && (haveList ? (state.matches.length === 1 || (state.list.src === 'csv' && !state.matches.length)) : true);
     Array.prototype.forEach.call(document.querySelectorAll('.act'), function (b) { b.disabled = !canSend; });
     $('nameBtn').textContent = state.name || 'set name';
     var age = state.list.at ? Math.max(0, Math.round((Date.now() - state.list.at) / 1000)) : null;
-    $('listAge').textContent = age == null ? 'List: not loaded' : 'List updated ' + (age < 90 ? age + 's' : Math.round(age / 60) + 'm') + ' ago · ' + state.list.vins.length + ' VINs';
+    $('listAge').textContent = age == null ? 'List: not loaded' : 'List updated ' + (age < 90 ? age + 's' : Math.round(age / 60) + 'm') + ' ago · ' + state.list.vins.length + ' VINs' + (state.list.src === 'csv' ? ' · BACKUP LIST (may lag a few min)' : '');
     updatePills();
   }
 
@@ -188,7 +202,7 @@
     var link = $('cfgLink').value.trim(), url = $('cfgUrl').value.trim(), key = $('cfgKey').value.trim();
     if (link) c = L.decodeCfg(link);
     else if (url && (key || state.cfg)) {
-      if (/^https:\/\//.test(url)) c = { url: url, key: key || state.cfg.key };
+      if (/^https:\/\//.test(url)) c = { url: url, key: key || state.cfg.key, csv: (state.cfg && state.cfg.csv) || '' };
     }
     if (!c) { err.textContent = 'Could not read that. Paste the full share link, or an https:// URL plus key.'; err.hidden = false; return; }
     state.cfg = c; save(K.cfg, c); state.list = { at: 0, vins: [] }; save(K.list, state.list);

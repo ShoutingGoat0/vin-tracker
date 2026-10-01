@@ -108,10 +108,48 @@
       var bin = typeof atob === 'function' ? atob(s) : Buffer.from(s, 'base64').toString('binary');
       var json = decodeURIComponent(Array.prototype.map.call(bin, function (c) { return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2); }).join(''));
       var o = JSON.parse(json);
-      var url = o.u || o.url, key = o.k || o.key;
+      var url = o.u || o.url, key = o.k || o.key, csv = o.c || o.csv || '';
       if (typeof url !== 'string' || typeof key !== 'string' || !/^https:\/\//.test(url) || !key) return null;
-      return { url: url, key: key };
+      if (typeof csv !== 'string' || (csv && !/^https:\/\//.test(csv))) csv = '';
+      return { url: url, key: key, csv: csv };
     } catch (e) { return null; }
+  }
+
+  /** Minimal RFC-4180 CSV parser -> array of rows. */
+  function parseCsv(text) {
+    var rows = [], row = [], f = '', q = false, s = String(text || '').replace(/^\uFEFF/, '');
+    for (var i = 0; i < s.length; i++) {
+      var c = s[i];
+      if (q) {
+        if (c === '"') { if (s[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c;
+      } else if (c === '"') q = true;
+      else if (c === ',') { row.push(f); f = ''; }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && s[i + 1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+      else f += c;
+    }
+    if (f !== '' || row.length) { row.push(f); rows.push(row); }
+    return rows;
+  }
+
+  /**
+   * Published-CSV fallback: same layout as the sheet (header row 'Reservation Time (CT)', then
+   * Prod VIN/Status, CC VIN/Status, Dev VIN/Status). Carries the reservation time down; stops at the
+   * footer note / Status Summary. Returns [{vin, klass, reservation, status}].
+   */
+  function parseSheetCsv(text) {
+    var rows = parseCsv(text), out = [], res = '', started = false;
+    var groups = [['Prod', 1, 2], ['CC', 3, 4], ['Dev', 5, 6]];
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i], a = String(r[0] || '').replace(/\s+/g, ' ').trim();
+      if (!started) { if (/^reservation time/i.test(a)) started = true; continue; }
+      if (/^use each status/i.test(a) || /^status summary$/i.test(a)) break;
+      if (a) res = a;
+      groups.forEach(function (g) {
+        var vin = String(r[g[1]] || '').trim().toUpperCase();
+        if (/^[A-Z0-9]{11,17}$/.test(vin)) out.push({ vin: vin, klass: g[0], reservation: res, status: String(r[g[2]] || '').replace(/\s+/g, ' ').trim() });
+      });
+    }
+    return out;
   }
 
   function uuid() {
@@ -123,5 +161,5 @@
   }
 
   return { TZ: TZ, cleanDigits: cleanDigits, matchVins: matchVins, chicagoParts: chicagoParts, chicagoWallToUtc: chicagoWallToUtc,
-    parseReservation: parseReservation, countdown: countdown, fmtDur: fmtDur, decodeCfg: decodeCfg, uuid: uuid };
+    parseReservation: parseReservation, countdown: countdown, fmtDur: fmtDur, decodeCfg: decodeCfg, parseCsv: parseCsv, parseSheetCsv: parseSheetCsv, uuid: uuid };
 });

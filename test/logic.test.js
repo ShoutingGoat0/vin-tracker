@@ -1,4 +1,4 @@
-const assert = require('assert');
+const assert = require('assert'); const fs = require('fs');
 const L = require('../logic.js');
 let n = 0; const t = (name, fn) => { fn(); n++; console.log('ok -', name); };
 const iso = (ms) => new Date(ms).toISOString();
@@ -72,14 +72,38 @@ t('countdown text', () => {
 t('decodeCfg round trip and bad input', () => {
   const o = { u: 'https://script.google.com/macros/s/AKfy/exec', k: 'pässword-ü/+=?' };
   const b64 = Buffer.from(JSON.stringify(o)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  assert.deepStrictEqual(L.decodeCfg('#cfg=' + b64), { url: o.u, key: o.k });
-  assert.deepStrictEqual(L.decodeCfg('https://x.github.io/vin-tracker/#cfg=' + b64), { url: o.u, key: o.k });
-  assert.deepStrictEqual(L.decodeCfg(b64), { url: o.u, key: o.k });
+  assert.deepStrictEqual(L.decodeCfg('#cfg=' + b64), { url: o.u, key: o.k, csv: '' });
+  assert.deepStrictEqual(L.decodeCfg('https://x.github.io/vin-tracker/#cfg=' + b64), { url: o.u, key: o.k, csv: '' });
+  assert.deepStrictEqual(L.decodeCfg(b64), { url: o.u, key: o.k, csv: '' });
   assert.strictEqual(L.decodeCfg('#cfg=%%%'), null);
   assert.strictEqual(L.decodeCfg(Buffer.from('{"u":"http://x","k":"a"}').toString('base64')), null);
   assert.strictEqual(L.decodeCfg(''), null);
 });
 
 t('uuid format', () => { assert.ok(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(L.uuid())); });
+
+
+t('CSV fallback parse (real master.csv when present)', () => {
+  const p = '/workspace/master.csv';
+  const csv = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : 'Fleet,,,,,,\r\n,,,,,,\r\nReservation Time (CT),Prod VIN,Prod Status,CC VIN,CC Status,Dev VIN,Dev Status\r\nThu 10/01  4:00 AM,7SAYGDEE5TF559997,,,,,\r\n,7SAYGDEE6TF563346,Shop,,,,\r\nUse each Status x\r\n';
+  const v = L.parseSheetCsv(csv);
+  assert.ok(v.length >= 2);
+  const a = v.find((x) => x.vin === '7SAYGDEE6TF563346');
+  assert.strictEqual(a.reservation, 'Thu 10/01 4:00 AM'); assert.strictEqual(a.klass, 'Prod');
+  if (fs.existsSync(p)) {
+    assert.strictEqual(v.find((x) => x.vin === '5YJAJEEU4TA003111').reservation, 'Thu 10/01 5:30 AM');
+    assert.strictEqual(v.find((x) => x.vin === '7SAYGDEE0TF346777').reservation, 'No Reservation');
+    assert.strictEqual(v.find((x) => x.vin === '5YJAJEEU0TA001923').reservation, 'Sat 10/03 10:00 PM');
+    assert.ok(!v.some((x) => /status|picked|current/i.test(x.vin)));
+  }
+  assert.deepStrictEqual(L.parseCsv('a,"b,""c""",d\r\n1,2,3'), [['a', 'b,"c"', 'd'], ['1', '2', '3']]);
+});
+
+t('cfg with csv', () => {
+  const o = { u: 'https://script.google.com/x/exec', k: 'k1', c: 'https://docs.google.com/pub?output=csv' };
+  assert.deepStrictEqual(L.decodeCfg('#cfg=' + Buffer.from(JSON.stringify(o)).toString('base64url')), { url: o.u, key: 'k1', csv: o.c });
+  const bad = Buffer.from(JSON.stringify({ u: o.u, k: 'k1', c: 'http://evil' })).toString('base64url');
+  assert.strictEqual(L.decodeCfg(bad).csv, '');
+});
 
 console.log(`\n${n} logic tests passed`);

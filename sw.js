@@ -1,5 +1,5 @@
 /* Minimal service worker: cache the app shell only. Never touches cross-origin (Apps Script) requests. */
-const CACHE = 'vin-tracker-v1';
+const CACHE = 'vin-tracker-v2';
 const SHELL = ['./', 'index.html', 'app.js', 'logic.js', 'style.css', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png'];
 

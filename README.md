@@ -19,7 +19,8 @@ Nothing secret lives in this folder. The API key lives only in the sheet's Scrip
    python3 -m venv .venv && .venv/bin/pip install qrcode pillow     # once
    .venv/bin/python tools/make_share_link.py \
        --app https://shoutinggoat0.github.io/vin-tracker/ \
-       --url "PASTE_WEB_APP_URL"                                      # key is prompted (hidden)
+       --url "PASTE_WEB_APP_URL" \
+       --csv "PASTE_PUBLISHED_CSV_URL"                                # optional backup list; key is prompted (hidden)
    ```
    It prints `https://…/vin-tracker/#cfg=…` and saves `share-qr.png`. Text the link / show the QR to the crew.
 8. Each phone: open the link → enter name → done (config saved on the phone; the hash is removed from the address bar). Then **Add to Home Screen** (iOS Safari: Share → Add to Home Screen; Android Chrome: ⋮ → Install app).
@@ -29,6 +30,9 @@ Treat the link/QR like a password. To rotate: **Fleet Tracker → Set API key**,
 ### Test it
 - Browser: `<Web app URL>?action=list&key=YOURKEY` should return JSON `{ok:true,vins:[…]}`.
 - Phone: type 4 digits of a VIN, tap a button, check the sheet cell and the `Log` tab.
+
+## Backup list (published CSV)
+If the share link includes `--csv` (File → Share → Publish to web → the tab → CSV), the phone reads that **read-only** CSV whenever the Apps Script list is unreachable or errors, so lookups still work. The Apps Script list is always tried first (published CSVs can lag a few minutes behind edits). Writes (status + Log) always go through the Apps Script and are queued if it's down. In backup mode the app shows a "BACKUP LIST" note and still lets you send a VIN it can't find (the server decides). The CSV URL lives only in the share link, never in the repo.
 
 ## Status Summary layout (written by *Fleet Tracker → Set up*)
 Replaces the old Picked/Dropped block (same location, below the note). Columns by class, rows by status:
@@ -67,7 +71,7 @@ Do **not** commit the key, the `/exec` URL, or `share-qr.png`.
 
 ## Dev
 ```bash
-node test/logic.test.js     # digit matching, Chicago time parsing, countdown, cfg decode
+node test/logic.test.js     # digit matching, Chicago time parsing, countdown, cfg decode, CSV fallback parse
 node test/code.test.js      # Code.gs logic (loaded in a vm sandbox with mock IO)
 python3 -m http.server 3020 # then open http://localhost:3020
 python3 tools/make_icons.py # regenerate icons (needs Pillow)
