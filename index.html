@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1419">
+<meta name="color-scheme" content="dark">
+<meta name="referrer" content="no-referrer">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="VIN Tracker">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>VIN Tracker</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="who"><span class="muted">Name</span> <button id="nameBtn" class="link" type="button">—</button></div>
+  <div class="top-right">
+    <span id="netPill" class="pill" hidden></span>
+    <span id="queuePill" class="pill warn" hidden></span>
+    <button id="menuBtn" class="icon-btn" type="button" aria-label="Settings">⚙</button>
+  </div>
+</header>
+
+<main id="main">
+  <div class="label-row"><label class="field-label" for="digits">Last 4–6 of VIN</label><button id="kbBtn" class="link" type="button">ABC</button></div>
+  <input id="digits" class="digits" type="text" inputmode="numeric" pattern="[A-Za-z0-9]*" maxlength="6"
+         autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="••••" enterkeyhint="done">
+  <div id="hint" class="hint muted">Type at least 4 characters.</div>
+
+  <section id="results" aria-live="polite"></section>
+
+  <section class="actions" id="actions">
+    <button class="act a-pick" data-action="Picked Up" type="button" disabled>Picked Up</button>
+    <button class="act a-shop" data-action="Shop" type="button" disabled>Shop</button>
+    <button class="act a-chg" data-action="Charger" type="button" disabled>Charger</button>
+    <button class="act a-sp" data-action="SP" type="button" disabled>SP</button>
+  </section>
+
+  <section class="recent">
+    <h2>My last 5</h2>
+    <ul id="recent"><li class="muted">Nothing yet.</li></ul>
+  </section>
+  <footer class="foot muted"><span id="listAge"></span> <button id="refreshBtn" class="link" type="button">Refresh list</button></footer>
+</main>
+
+<!-- First-launch name -->
+<dialog id="nameDlg">
+  <form method="dialog" id="nameForm">
+    <h2>Who's on shift?</h2>
+    <p class="muted">Your name is saved on this phone and written to the log with each action.</p>
+    <input id="nameInput" type="text" maxlength="40" autocomplete="given-name" placeholder="Your name" required>
+    <div class="row"><button class="btn primary" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<!-- One-time config -->
+<dialog id="cfgDlg">
+  <form method="dialog" id="cfgForm">
+    <h2>One-time setup</h2>
+    <p class="muted">Easiest: open the share link Mark sent (or scan his QR). Or paste the whole link here, or enter the details manually.</p>
+    <label for="cfgLink">Share link</label>
+    <input id="cfgLink" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://…/#cfg=…">
+    <details>
+      <summary>Enter manually</summary>
+      <label for="cfgUrl">Apps Script web app URL</label>
+      <input id="cfgUrl" type="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec">
+      <label for="cfgKey">API key</label>
+      <input id="cfgKey" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+    </details>
+    <div id="cfgErr" class="err" hidden></div>
+    <div class="row"><button class="btn primary" type="submit">Save</button> <button class="btn" type="button" id="cfgCancel">Cancel</button></div>
+  </form>
+</dialog>
+
+<!-- Settings -->
+<dialog id="menuDlg">
+  <h2>Settings</h2>
+  <div class="col">
+    <button class="btn" id="chgName" type="button">Change name</button>
+    <button class="btn" id="chgCfg" type="button">Change setup (URL / key)</button>
+    <button class="btn" id="clearHist" type="button">Clear my recent list</button>
+    <button class="btn" id="menuClose" type="button">Close</button>
+  </div>
+  <p class="muted small" id="ver"></p>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="assertive" hidden></div>
+
+<script src="logic.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
