@@ -11,7 +11,7 @@ Nothing secret lives in this folder. The API key lives only in the sheet's Scrip
 2. **Extensions → Apps Script.** Delete the default code, paste all of `Code.gs`, click **Save**.
 3. Reload the sheet tab. A new menu **Fleet Tracker** appears (first run asks you to authorize: Advanced → Go to project → Allow).
 4. **Fleet Tracker → Set API key** → enter a long random secret (12+ chars) → OK. *(Same as running `Setup` from the editor.)*
-5. **Fleet Tracker → Set up** → updates the Status dropdowns to Picked Up / Shop / Charger / SP, rewrites the Status Summary, creates the `Log` tab.
+5. **Fleet Tracker → Set up** → updates the Status dropdowns to Picked Up / Shop / Charger / SP, adds the green “SP” highlight, rewrites the Status Summary, creates the `Log` and `Completed` tabs (and adds the `Shift` column to an existing `Log`).
 6. In Apps Script: **Deploy → New deployment → ⚙ Web app** → *Execute as:* **Me** · *Who has access:* **Anyone** → **Deploy** → copy the **Web app URL** (ends in `/exec`).
    After any later edit to `Code.gs`: **Deploy → Manage deployments → ✎ → Version: New version → Deploy** (URL stays the same).
 7. **Build the share link** on your computer:
@@ -26,6 +26,27 @@ Nothing secret lives in this folder. The API key lives only in the sheet's Scrip
 8. Each phone: open the link → enter name → done (config saved on the phone; the hash is removed from the address bar). Then **Add to Home Screen** (iOS Safari: Share → Add to Home Screen; Android Chrome: ⋮ → Install app).
 
 Treat the link/QR like a password. To rotate: **Fleet Tracker → Set API key**, rebuild the link, re-share.
+
+## Daily routine (new reservation list)
+1. **During the shift** the crew uses the phone app; every tap writes the status cell, a `Log` row, and (for SP) the `Completed` tab.
+2. **After the shift ends** (any time before you paste the next list): **Fleet Tracker → New shift** → **YES**.
+   - Copies `Reservation Sort` to a new tab **`Archive yyyy-MM-dd`** (the date the 10 pm CT shift *started*, e.g. run at 6:30 AM on Oct 1 → `Archive 2026-09-30`; run at/after 10 pm → that day; `(2)`, `(3)` is appended if the name exists). The `Completed` tab is copied too (`Archive … Completed`) and then emptied.
+   - Clears **only** the Status cells (columns C, E, G). VINs, reservations, the `Log` tab and your other cells are not touched. If the archive copy fails, nothing is cleared.
+   - Re-runs **Set up** (dropdowns, green SP highlight, summary).
+3. **Paste the new reservation list** into `Reservation Sort` (VINs/reservations only — don’t paste over the Status columns).
+4. Run **Fleet Tracker → Set up** once after pasting so dropdowns, green highlight and summary ranges match the new rows. (If you forgot step 2, run New shift *before* pasting — it archives what’s on the sheet at that moment.)
+
+**Why both?** *New shift* = end-of-shift reset (archive + clear statuses). *Set up* = “the VIN rows changed, refresh formatting/summary”. New shift already includes a Set up run, but it cannot know about VINs you paste afterwards.
+
+## Completed (SP) tracking
+- Setting a VIN to **SP** (returned to San Pedro) adds it to the **`Completed`** tab: VIN, Class, Reservation time, Moved by, Time completed CT — row highlighted green. The VIN and Status cells on `Reservation Sort` also turn green (conditional formatting, set by *Set up*; re-running Set up replaces its own rules and keeps yours).
+- Setting a different status afterwards (a correction) **removes** the VIN from `Completed`; setting SP again re-adds it. Re-sending SP for a VIN already listed updates its row rather than duplicating it.
+- If the `Completed` tab can’t be updated, the status and `Log` row are still saved.
+- The Status Summary has a **Completed (SP list)** row (count per class from the `Completed` tab). If you manually edit statuses in the sheet, `Completed` is not updated — only app taps maintain it.
+
+## Log tab and the Shift column
+`Log` columns: `Timestamp CT, Name, Digits, Full VIN, Class, Action, Reservation time, ClientId, Shift`. **Shift** (column I) is the shift date: a timestamp **before 6:00 AM CT belongs to the previous calendar date**, otherwise the same date (e.g. 11:10 PM Sep 30 → `2026-09-30`, 2:15 AM Oct 1 → `2026-09-30`, 8:00 AM Oct 1 → `2026-10-01`). The value is stored as text `yyyy-MM-dd`.
+Existing logs migrate automatically: running *Set up* (or *New shift*) appends the `Shift` header and back-fills blank Shift cells of old rows from their timestamps. Columns A–H and old rows are never moved or changed, and the app keeps working before the migration (the duplicate check reads only A–H).
 
 ### Test it
 - Browser: `<Web app URL>?action=list&key=YOURKEY` should return JSON `{ok:true,vins:[…]}`.
@@ -45,6 +66,7 @@ Replaces the old Picked/Dropped block (same location, below the note). Columns b
 | SP | … | … | … | sum |
 | Blank (not updated) | VIN present, status empty | … | … | sum |
 | Total VINs | `COUNTA(B…)` | `COUNTA(D…)` | `COUNTA(F…)` | sum |
+| Completed (SP list) | `COUNTIF(Completed!B2:B,"Prod")` | … `"CC"` | … `"Dev"` | sum |
 
 Ranges run from row 4 to just above the footer note. If you add VIN rows, add them above the note (inside the range) and re-run **Set up** to refresh validation and formulas.
 Old values like "Dropped Off" are left untouched but are no longer valid and aren't counted — change them to a new status.
@@ -52,7 +74,7 @@ Old values like "Dropped Off" are left untouched but are no longer valid and are
 ## API
 - `GET <exec>?action=list&key=KEY` → `{ok, generatedAt, vins:[{vin, klass:"Prod|CC|Dev", reservation:"Thu 10/01 4:00 AM", status}]}` (reservation time carried down from the group's first row).
 - `POST <exec>` body (sent as `text/plain` JSON to avoid CORS preflight) `{key, name, digits, action, clientId}`:
-  - exactly 1 VIN ends with `digits` (case-insensitive) → status cell set, row appended to `Log` (`Timestamp CT, Name, Digits, Full VIN, Class, Action, Reservation time, ClientId`) → `{ok:true, vin, klass, action, reservation}`
+  - exactly 1 VIN ends with `digits` (case-insensitive) → status cell set, row appended to `Log` (`Timestamp CT, Name, Digits, Full VIN, Class, Action, Reservation time, ClientId, Shift`; SP also lists it on `Completed`, any other status removes it) → `{ok:true, vin, klass, action, reservation}`
   - 0 or >1 matches → `{ok:false, error, matches:[…]}`, nothing written
   - duplicate `clientId`, or same VIN + action within 20 s → `{ok:true, duplicate:true}`, nothing written
   - Guarded by `LockService`; time zone America/Chicago; nothing beyond those fields is logged. Names starting with `= + - @` are prefixed with `'` so they can't become formulas.
@@ -72,7 +94,7 @@ Do **not** commit the key, the `/exec` URL, or `share-qr.png`.
 ## Dev
 ```bash
 node test/logic.test.js     # digit matching, Chicago time parsing, countdown, cfg decode, CSV fallback parse
-node test/code.test.js      # Code.gs logic (loaded in a vm sandbox with mock IO)
+node test/code.test.js      # Code.gs logic + New shift / Set up / Log migration / Completed against a strict mock of documented SpreadsheetApp methods
 python3 -m http.server 3020 # then open http://localhost:3020
 python3 tools/make_icons.py # regenerate icons (needs Pillow)
 ```
